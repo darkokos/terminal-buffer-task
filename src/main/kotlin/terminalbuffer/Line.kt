@@ -1,6 +1,10 @@
 package terminalbuffer
 
 class Line(val width: Int) {
+    init {
+        require(width > 0) { "Terminal line width must be at least 1, got $width." }
+    }
+
     private val cells: Array<Cell> = Array(width) { Cell.EMPTY }
 
     private fun requireValidColumn(column: Int) {
