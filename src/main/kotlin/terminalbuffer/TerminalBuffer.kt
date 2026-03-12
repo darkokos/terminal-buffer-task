@@ -8,7 +8,7 @@ class TerminalBuffer(
     init {
         require(width > 0) { "Terminal width must be at least 1, got $width." }
         require(height > 0) { "Terminal height must be at least 1, got $height." }
-        require(maxScrollback > 0) { "Terminal max scrollback must be at least 1, got $maxScrollback." }
+        require(maxScrollback >= 0) { "Terminal max scrollback must be at least 0, got $maxScrollback." }
     }
 
     var width: Int = width
