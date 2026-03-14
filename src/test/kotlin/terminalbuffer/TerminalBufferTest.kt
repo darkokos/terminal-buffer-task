@@ -8,7 +8,9 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Order
+import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.MethodSource
 
 class TerminalBufferTest {
 
@@ -38,6 +40,29 @@ class TerminalBufferTest {
         }
     }
 
+    companion object {
+
+        @JvmStatic
+        fun invalidScreenPositionSource() = listOf(
+            Arguments.of(5, -1),
+            Arguments.of(5, 80),
+            Arguments.of(5, 81),
+            Arguments.of(-1, 5),
+            Arguments.of(60, 5),
+            Arguments.of(61, 5),
+        )
+
+        @JvmStatic
+        fun invalidBufferPositionSource() = listOf(
+            Arguments.of(-1, 5),
+            Arguments.of(70, 5),
+            Arguments.of(71, 5),
+            Arguments.of(5, -1),
+            Arguments.of(5, 80),
+            Arguments.of(5, 81),
+        )
+    }
+
     @Nested
     inner class Methods {
 
@@ -58,6 +83,44 @@ class TerminalBufferTest {
 
             @Test
             fun `reducing maxScrollback removes oldest lines`() {
+                for (i in 0..<3) {
+                    terminalBuffer.write("Line$i")
+                    terminalBuffer.insertLineAtBottom()
+                    if (i != 2) terminalBuffer.setCursorPosition(0, 0)
+                }
+
+                terminalBuffer.maxScrollback = 2
+                assertEquals(
+                    "Line1${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(0)
+                )
+                assertEquals(
+                    "Line2${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(1)
+                )
+            }
+
+            @Test
+            fun `increasing maxScrollback preserves existing lines`() {
+                for (i in 0..<3) {
+                    terminalBuffer.write("Line$i")
+                    terminalBuffer.insertLineAtBottom()
+                    if (i != 2) terminalBuffer.setCursorPosition(0, 0)
+                }
+
+                terminalBuffer.maxScrollback = 20
+                assertEquals(
+                    "Line0${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(0)
+                )
+                assertEquals(
+                    "Line1${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(1)
+                )
+                assertEquals(
+                    "Line2${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(2)
+                )
             }
         }
 
@@ -268,6 +331,626 @@ class TerminalBufferTest {
             @Test
             fun `moveCursorRight does not work with negative value`() {
                 assertThrows<IllegalArgumentException> { terminalBuffer.moveCursorRight(-1) }
+            }
+        }
+
+        @Nested
+        inner class Write {
+
+            @Test
+            fun `write does not write control character`() {
+                terminalBuffer.write("\u0000")
+                assertEquals(' ', terminalBuffer.getCharAt(0, 0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(0, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does write wide character to buffer with width of 2`() {
+                val narrowTerminalBuffer = TerminalBuffer(2, 10, 10)
+                narrowTerminalBuffer.write("\uFF01")
+                assertEquals("\uFF01 ", narrowTerminalBuffer.getLineTextAt(0))
+                assertEquals(0, narrowTerminalBuffer.cursorRow)
+                assertEquals(2, narrowTerminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does write wide character to buffer with width of 3`() {
+                val narrowTerminalBuffer = TerminalBuffer(3, 10, 10)
+                narrowTerminalBuffer.write("\uFF01")
+                assertEquals("\uFF01  ", narrowTerminalBuffer.getLineTextAt(0))
+                assertEquals(0, narrowTerminalBuffer.cursorRow)
+                assertEquals(2, narrowTerminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does not write wide character to buffer with width of 1`() {
+                val narrowTerminalBuffer = TerminalBuffer(1, 10, 10)
+                narrowTerminalBuffer.write("\uFF01")
+                assertEquals(" ", narrowTerminalBuffer.getLineTextAt(0))
+                assertEquals(0, narrowTerminalBuffer.cursorRow)
+                assertEquals(0, narrowTerminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does not push to scrollback when wide character exactly fits the last line of the screen`() {
+                terminalBuffer.setCursorPosition(terminalBuffer.height - 1, terminalBuffer.width - 2)
+                terminalBuffer.write("\uFF01")
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(
+                    " ".repeat(80),
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 2)
+                )
+                assertEquals(
+                    "${" ".repeat(78)}\uFF01 ",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 1)
+                )
+                assertEquals(terminalBuffer.height - 1, terminalBuffer.cursorRow)
+                assertEquals(terminalBuffer.width, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write pushes to scrollback when wide character wraps the last line of screen`() {
+                terminalBuffer.setCursorPosition(terminalBuffer.height - 1, terminalBuffer.width - 1)
+                terminalBuffer.write("\uFF01")
+                assertEquals(1, terminalBuffer.scrollbackSize)
+                assertEquals(
+                    " ".repeat(80),
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 2)
+                )
+                assertEquals(
+                    "\uFF01 ${" ".repeat(78)}",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 1)
+                )
+                assertEquals(terminalBuffer.height - 1, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does not wrap to next line when wide character fits screen width exactly`() {
+                terminalBuffer.write("\uFF01".repeat(40))
+                assertEquals("\uFF01 ".repeat(40), terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(80, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write wraps to next line when continuation exceeds width`() {
+                terminalBuffer.write("\uFF01".repeat(39))
+                terminalBuffer.write("A\uFF01")
+                assertEquals("${"\uFF01 ".repeat(39)}A ", terminalBuffer.getLineTextAt(0))
+                assertEquals("\uFF01 ${" ".repeat(78)}", terminalBuffer.getLineTextAt(1))
+                assertEquals(1, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write wraps to next line when wide character exceeds width`() {
+                terminalBuffer.write("\uFF01".repeat(41))
+                assertEquals("\uFF01 ".repeat(40), terminalBuffer.getLineTextAt(0))
+                assertEquals("\uFF01 ${" ".repeat(78)}", terminalBuffer.getLineTextAt(1))
+                assertEquals(1, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a wide character over a wide character`() {
+                terminalBuffer.write("\uFF01")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("\uFF02")
+                assertEquals("\uFF02 ${" ".repeat(78)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a wide character over a continuation followed by a wide character`() {
+                terminalBuffer.write("\uFF01\uFF02")
+                terminalBuffer.setCursorPosition(0, 1)
+                terminalBuffer.write("\uFF03")
+                assertEquals(" \uFF03 ${" ".repeat(77)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(3, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a wide character over a character with width of 1 followed by a wide character`() {
+                terminalBuffer.write("A\uFF01")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("\uFF02")
+                assertEquals("\uFF02 ${" ".repeat(78)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a wide character over a continuation followed by a character with width of 1`() {
+                terminalBuffer.write("\uFF01A")
+                terminalBuffer.setCursorPosition(0, 1)
+                terminalBuffer.write("\uFF02")
+                assertEquals(" \uFF02 ${" ".repeat(77)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(3, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a wide character over two consecutive characters with width of 1`() {
+                terminalBuffer.write("AA")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("\uFF01")
+                assertEquals("\uFF01 ${" ".repeat(78)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does not push to scrollback when character with width of 1 exactly fits the last line of the screen`() {
+                terminalBuffer.setCursorPosition(terminalBuffer.height - 1, terminalBuffer.width - 1)
+                terminalBuffer.write("A")
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(
+                    " ".repeat(80),
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 2)
+                )
+                assertEquals(
+                    "${" ".repeat(79)}A",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 1)
+                )
+                assertEquals(terminalBuffer.height - 1, terminalBuffer.cursorRow)
+                assertEquals(terminalBuffer.width, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write pushes to scrollback when character with width of 1 wraps the last line of screen`() {
+                terminalBuffer.setCursorPosition(terminalBuffer.height - 1, terminalBuffer.width - 1)
+                terminalBuffer.write("AA")
+                assertEquals(1, terminalBuffer.scrollbackSize)
+                assertEquals(
+                    "${" ".repeat(79)}A",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 2)
+                )
+                assertEquals(
+                    "A${" ".repeat(79)}",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 1)
+                )
+                assertEquals(terminalBuffer.height - 1, terminalBuffer.cursorRow)
+                assertEquals(1, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write does not wrap to next line when character with width of 1 fits the buffer width exactly`() {
+                terminalBuffer.write("A".repeat(80))
+                assertEquals("A".repeat(80), terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(80, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write wraps to next line when character with width of 1 exceeds buffer width`() {
+                terminalBuffer.write("A".repeat(81))
+                assertEquals("A".repeat(80), terminalBuffer.getLineTextAt(0))
+                assertEquals("A${" ".repeat(79)}", terminalBuffer.getLineTextAt(1))
+                assertEquals(1, terminalBuffer.cursorRow)
+                assertEquals(1, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a character with width of 1 over a character with width of 1`() {
+                terminalBuffer.write("A")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("B")
+                assertEquals("B${" ".repeat(79)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(1, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a character with width of 1 over a wide character`() {
+                terminalBuffer.write("\uFF01")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("A")
+                assertEquals("A ${" ".repeat(78)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(1, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `write correctly writes a character with width of 1 over a continuation`() {
+                terminalBuffer.write("\uFF01")
+                terminalBuffer.setCursorPosition(0, 1)
+                terminalBuffer.write("A")
+                assertEquals(" A${" ".repeat(78)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+            }
+        }
+
+        @Nested
+        inner class Insert {
+
+            @Test
+            fun `insert does not write empty string`() {
+                terminalBuffer.insert("")
+                assertEquals(" ".repeat(80), terminalBuffer.getLineTextAt(0))
+            }
+
+            @Test
+            fun `insert at end of buffer content appends text to buffer content`() {
+                terminalBuffer.insert("A")
+                assertEquals("A${" ".repeat(79)}", terminalBuffer.getLineTextAt(0))
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(1, terminalBuffer.cursorColumn)
+                assertEquals(terminalBuffer.currentCellAttributes, CellAttributes.DEFAULT)
+            }
+
+            @Test
+            fun `insert at end of buffer content appends text to buffer and does not push to scrollback`() {
+                terminalBuffer.setCursorPosition(terminalBuffer.height - 1, terminalBuffer.width - 1)
+                terminalBuffer.insert("A")
+                assertEquals(
+                    " ".repeat(80),
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 2)
+                )
+                assertEquals(
+                    "${" ".repeat(79)}A",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 1)
+                )
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(terminalBuffer.height - 1, terminalBuffer.cursorRow)
+                assertEquals(terminalBuffer.width, terminalBuffer.cursorColumn)
+                assertEquals(terminalBuffer.currentCellAttributes, CellAttributes.DEFAULT)
+            }
+
+            @Test
+            fun `insert past end of buffer content appends text to buffer and pushes to scrollback`() {
+                terminalBuffer.setCursorPosition(terminalBuffer.height - 1, terminalBuffer.width - 1)
+                terminalBuffer.insert("AA")
+                assertEquals(
+                    "${" ".repeat(79)}A",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 2)
+                )
+                assertEquals(
+                    "A${" ".repeat(79)}",
+                    terminalBuffer.getLineTextAt(terminalBuffer.height - 1)
+                )
+                assertEquals(1, terminalBuffer.scrollbackSize)
+                assertEquals(terminalBuffer.height - 1, terminalBuffer.cursorRow)
+                assertEquals(1, terminalBuffer.cursorColumn)
+                assertEquals(terminalBuffer.currentCellAttributes, CellAttributes.DEFAULT)
+            }
+
+            @Test
+            fun `insert preserves shifted wide characters`() {
+                terminalBuffer.insert("\uFF01")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.insert("A")
+                assertEquals(Cell('A'), terminalBuffer.getCellAt(0, 0))
+                assertEquals(Cell('\uFF01'), terminalBuffer.getCellAt(0, 1))
+                assertEquals(Cell.continuation(), terminalBuffer.getCellAt(0, 2))
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(3, terminalBuffer.cursorColumn)
+                assertEquals(terminalBuffer.currentCellAttributes, CellAttributes.DEFAULT)
+            }
+
+            @Test
+            fun `insert shifts cells past insertion point and preserves their and buffer cell attributes`() {
+                terminalBuffer.setForegroundColour(Colour.MAGENTA)
+                terminalBuffer.insert("\uFF01")
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.setForegroundColour(Colour.GREEN)
+                terminalBuffer.insert("A")
+                assertEquals(
+                    Cell('A', CellAttributes(foregroundColour = Colour.GREEN)),
+                    terminalBuffer.getCellAt(0, 0)
+                )
+                assertEquals(
+                    Cell('\uFF01', CellAttributes(foregroundColour = Colour.MAGENTA)),
+                    terminalBuffer.getCellAt(0, 1)
+                )
+                assertEquals(
+                    Cell.continuation(CellAttributes(foregroundColour = Colour.MAGENTA)),
+                    terminalBuffer.getCellAt(0, 2)
+                )
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(3, terminalBuffer.cursorColumn)
+                assertEquals(
+                    terminalBuffer.currentCellAttributes,
+                    CellAttributes(foregroundColour = Colour.GREEN)
+                )
+            }
+
+            @Test
+            fun `insert shifts cells that span multiple lines past insertion point and preserves their and buffer cell attributes`() {
+                terminalBuffer.setForegroundColour(Colour.MAGENTA)
+                terminalBuffer.insert("B".repeat(81))
+                terminalBuffer.setCursorPosition(0, 3)
+                terminalBuffer.setForegroundColour(Colour.GREEN)
+                terminalBuffer.insert("A")
+                for (i in 0..<3) {
+                    assertEquals(
+                        Cell('B', CellAttributes(foregroundColour = Colour.MAGENTA)),
+                        terminalBuffer.getCellAt(0, i)
+                    )
+                }
+                assertEquals(
+                    Cell('A', CellAttributes(foregroundColour = Colour.GREEN)),
+                    terminalBuffer.getCellAt(0, 3)
+                )
+                for (i in 4..<80) {
+                    assertEquals(
+                        Cell('B', CellAttributes(foregroundColour = Colour.MAGENTA)),
+                        terminalBuffer.getCellAt(0, i)
+                    )
+                }
+                for (i in 0..<2) {
+                    assertEquals(
+                        Cell('B', CellAttributes(foregroundColour = Colour.MAGENTA)),
+                        terminalBuffer.getCellAt(1, i)
+                    )
+                }
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(1, terminalBuffer.cursorRow)
+                assertEquals(2, terminalBuffer.cursorColumn)
+                assertEquals(
+                    terminalBuffer.currentCellAttributes,
+                    CellAttributes(foregroundColour = Colour.GREEN)
+                )
+            }
+        }
+
+        @Nested
+        inner class FillLine {
+
+            @Test
+            @Order(1)
+            fun `fillLine fills a line with the specified character`() {
+                terminalBuffer.fillLine('a')
+                assertEquals(
+                    "a".repeat(80),
+                    terminalBuffer.getLineTextAt(terminalBuffer.cursorRow)
+                )
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(0, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            @Order(2)
+            fun `fillLine clears a line if called with a whitespace`() {
+                terminalBuffer.fillLine('a')
+                terminalBuffer.fillLine(' ')
+                assertEquals(
+                    " ".repeat(80),
+                    terminalBuffer.getLineTextAt(terminalBuffer.cursorRow)
+                )
+            }
+        }
+
+        @Nested
+        inner class InsertLineAtBottom {
+
+            @Test
+            fun `insertLineAtBottom moves the top line to scrollback and adds an empty line at the bottom of the screen`() {
+                terminalBuffer.write("asd")
+                terminalBuffer.insertLineAtBottom()
+                assertEquals("asd${" ".repeat(77)}", terminalBuffer.getLineTextFromAllAt(0))
+                assertEquals(" ".repeat(80), terminalBuffer.getLineTextAt(0))
+            }
+        }
+
+        @Nested
+        inner class Clear {
+
+            @Test
+            fun `clearScreen clears all screen lines`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.setCursorPosition(1, 0)
+                terminalBuffer.write("Earth")
+                terminalBuffer.clearScreen()
+
+                for (i in 0..<60) {
+                    assertEquals(" ".repeat(80), terminalBuffer.getLineTextAt(i))
+                }
+            }
+
+            @Test
+            fun `clearAll clears all screen and scrollback lines`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.insertLineAtBottom()
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("Earth")
+                terminalBuffer.clearAll()
+                for (i in 0..<60) {
+                    assertEquals(" ".repeat(80), terminalBuffer.getLineTextFromAllAt(i))
+                }
+                assertEquals(0, terminalBuffer.scrollbackSize)
+            }
+        }
+
+        @Nested
+        inner class ContentAccess {
+
+            @Test
+            fun `getCharAt returns correct character`() {
+                terminalBuffer.write("Hello")
+                assertEquals('e', terminalBuffer.getCharAt(0, 1))
+            }
+
+            @ParameterizedTest
+            @MethodSource("terminalbuffer.TerminalBufferTest#invalidScreenPositionSource")
+            fun `getCharAt throws if called with position outside of screen`(row: Int, column: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getCharAt(row, column) }
+            }
+
+            @Test
+            fun `getAttributesAt returns correct attributes`() {
+                terminalBuffer.setForegroundColour(Colour.MAGENTA)
+                terminalBuffer.write("Hello")
+                assertEquals(
+                    CellAttributes(foregroundColour = Colour.MAGENTA),
+                    terminalBuffer.getAttributesAt(0, 1)
+                )
+            }
+
+            @ParameterizedTest
+            @MethodSource("terminalbuffer.TerminalBufferTest#invalidScreenPositionSource")
+            fun `getAttributesAt throws if called with position outside of screen`(row: Int, column: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getAttributesAt(row, column) }
+            }
+
+            @Test
+            fun `getCellAt returns correct cell`() {
+                terminalBuffer.write("Hello")
+                assertEquals(Cell('e'), terminalBuffer.getCellAt(0, 1))
+            }
+
+            @ParameterizedTest
+            @MethodSource("terminalbuffer.TerminalBufferTest#invalidScreenPositionSource")
+            fun `getCellAt throws if called with position outside of screen`(row: Int, column: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getCellAt(row, column) }
+            }
+
+            @Test
+            fun `getCharFromAllAt returns correct character from scrollback`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.insertLineAtBottom()
+                assertEquals('e', terminalBuffer.getCharFromAllAt(0, 1))
+            }
+
+            @Test
+            fun `getCharFromAllAt returns correct character from screen`() {
+                terminalBuffer.write("Hello")
+                assertEquals('e', terminalBuffer.getCharFromAllAt(0, 1))
+            }
+
+            @ParameterizedTest
+            @MethodSource("terminalbuffer.TerminalBufferTest#invalidBufferPositionSource")
+            fun `getCharFromAllAt throws if called with position outside of buffer`(row: Int, column: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getCharFromAllAt(row, column) }
+            }
+
+            @Test
+            fun `getAttributesFromAllAt returns correct attributes from scrollback`() {
+                terminalBuffer.setForegroundColour(Colour.MAGENTA)
+                terminalBuffer.write("Hello")
+                terminalBuffer.insertLineAtBottom()
+                assertEquals(
+                    CellAttributes(foregroundColour = Colour.MAGENTA),
+                    terminalBuffer.getAttributesFromAllAt(0, 1)
+                )
+            }
+
+            @Test
+            fun `getAttributesFromAllAt returns correct attributes from screen`() {
+                terminalBuffer.setForegroundColour(Colour.MAGENTA)
+                terminalBuffer.write("Hello")
+                assertEquals(
+                    CellAttributes(foregroundColour = Colour.MAGENTA),
+                    terminalBuffer.getAttributesFromAllAt(0, 1)
+                )
+            }
+
+            @ParameterizedTest
+            @MethodSource("terminalbuffer.TerminalBufferTest#invalidBufferPositionSource")
+            fun `getAttributesFromAllAt throws if called with position outside of buffer`(row: Int, column: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getAttributesFromAllAt(row, column) }
+            }
+
+            @Test
+            fun `getCellFromAllAt returns correct cell from scrollback`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.insertLineAtBottom()
+                assertEquals(Cell('e'), terminalBuffer.getCellFromAllAt(0, 1))
+            }
+
+            @Test
+            fun `getCellFromAllAt returns correct cell from screen`() {
+                terminalBuffer.write("Hello")
+                assertEquals(Cell('e'), terminalBuffer.getCellFromAllAt(0, 1))
+            }
+
+            @ParameterizedTest
+            @MethodSource("terminalbuffer.TerminalBufferTest#invalidBufferPositionSource")
+            fun `getCellFromAllAt throws if called with position outside of buffer`(row: Int, column: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getCellFromAllAt(row, column) }
+            }
+
+            @Test
+            fun `getLineTextAt returns string representation of line`() {
+                terminalBuffer.write("Hello")
+                assertEquals("Hello${" ".repeat(75)}", terminalBuffer.getLineTextAt(0))
+            }
+
+            @ParameterizedTest
+            @ValueSource(ints = [-1, 60, 61])
+            fun `getLineTextAt throws if called with row outside of screen`(row: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getLineTextAt(row) }
+            }
+
+            @Test
+            fun `getLineTextFromAllAt returns string representation of line from the scrollback`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.insertLineAtBottom()
+                assertEquals(
+                    "Hello${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(0)
+                )
+            }
+
+            @Test
+            fun `getLineTextFromAllAt returns string representation of line from the screen`() {
+                terminalBuffer.write("Hello")
+                assertEquals(
+                    "Hello${" ".repeat(75)}",
+                    terminalBuffer.getLineTextFromAllAt(0)
+                )
+            }
+
+            @ParameterizedTest
+            @ValueSource(ints = [-1, 70, 71])
+            fun `getLineTextFromAllAt throws if called with row outside of buffer`(row: Int) {
+                assertThrows<IndexOutOfBoundsException> { terminalBuffer.getLineTextFromAllAt(row) }
+            }
+
+            @Test
+            fun `getScreenText returns string representation of screen`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.setCursorPosition(1, 0)
+                terminalBuffer.write("Earth")
+
+                val sb = StringBuilder()
+                sb.appendLine("Hello${" ".repeat(75)}")
+                sb.appendLine("Earth${" ".repeat(75)}")
+                for (i in 0..<58) {
+                    sb.append(" ".repeat(80))
+                    if (i != 57) {
+                        sb.append("\n")
+                    }
+                }
+
+                assertEquals(sb.toString(), terminalBuffer.getScreenText())
+            }
+
+            @Test
+            fun `getTextFromAll returns string representation of buffer`() {
+                terminalBuffer.write("Hello")
+                terminalBuffer.insertLineAtBottom()
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.write("Earth")
+
+                val sb = StringBuilder()
+                sb.appendLine("Hello${" ".repeat(75)}")
+                sb.appendLine("Earth${" ".repeat(75)}")
+                for (i in 0..<59) {
+                    sb.append(" ".repeat(80))
+                    if (i != 58) {
+                        sb.append("\n")
+                    }
+                }
+
+                assertEquals(sb.toString(), terminalBuffer.getTextFromAll())
             }
         }
     }

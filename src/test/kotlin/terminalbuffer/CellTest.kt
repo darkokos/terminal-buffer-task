@@ -7,6 +7,7 @@ import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
+import terminalbuffer.Cell.Companion.EMPTY_CHAR
 
 class CellTest {
 
@@ -27,15 +28,15 @@ class CellTest {
         fun `EMPTY cell is the same as default cell`() {
             assertEquals(cell, Cell.EMPTY)
         }
-    }
 
-    @Test
-    fun `continuation factory creates correct cell`() {
-        val cell = Cell.continuation(CellAttributes(foregroundColour = Colour.RED))
+        @Test
+        fun `continuation factory creates correct cell`() {
+            val cell = Cell.continuation(CellAttributes(foregroundColour = Colour.RED))
 
-        assertTrue(cell.isContinuation)
-        assertEquals(Cell.EMPTY_CHAR, cell.char)
-        assertEquals(CellAttributes(foregroundColour = Colour.RED), cell.attributes)
+            assertTrue(cell.isContinuation)
+            assertEquals(Cell.EMPTY_CHAR, cell.char)
+            assertEquals(CellAttributes(foregroundColour = Colour.RED), cell.attributes)
+        }
     }
 
     @Nested
@@ -208,6 +209,41 @@ class CellTest {
         @MethodSource("characterWidths")
         fun `cell width is correct for provided char`(char: Char, width: Int) {
             assertEquals(width, Cell(char).width)
+        }
+
+        fun isPartOfWideCharSource() = listOf(
+            Arguments.of('\uFF01', true),
+            Arguments.of('.', false),
+        )
+
+        @ParameterizedTest
+        @MethodSource("isPartOfWideCharSource")
+        fun `wide character is part of wide cell`(char: Char, expected: Boolean) {
+            assertEquals(expected, Cell(char).isPartOfWideChar)
+        }
+
+        @Test
+        fun `continuation is part of wide cell`() {
+            assertTrue(Cell.continuation().isPartOfWideChar)
+        }
+
+        fun isEmptySource() = listOf(
+            Arguments.of(EMPTY_CHAR, true),
+            Arguments.of('a', false),
+        )
+
+        @ParameterizedTest
+        @MethodSource("isEmptySource")
+        fun `a cell is empty if it holds a whitespace character that isn't a continuation`(
+            char: Char,
+            expected: Boolean
+        ) {
+            assertEquals(expected, Cell(char).isEmpty())
+        }
+
+        @Test
+        fun `continuation is not an empty cell`() {
+            assertFalse(Cell.continuation().isEmpty())
         }
     }
 }

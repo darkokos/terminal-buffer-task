@@ -22,4 +22,28 @@ class Line(val width: Int) {
         requireValidColumn(column)
         cells[column] = cell
     }
+
+    fun fill(cell: Cell) {
+        cells.fill(cell)
+    }
+
+    fun clear() {
+        cells.fill(Cell.EMPTY)
+    }
+
+    fun clearWideCellAt(column: Int) {
+        val cell = getCell(column)
+        setCell(column, Cell.EMPTY)
+        if (cell.isContinuation) {
+            setCell(column - 1, Cell.EMPTY)
+        } else {
+            setCell(column + 1, Cell.EMPTY)
+        }
+    }
+
+    fun toText(): String {
+        val sb = StringBuilder()
+        sb.append(cells.joinToString("") { it.char.toString() })
+        return sb.toString()
+    }
 }

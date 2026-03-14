@@ -33,10 +33,14 @@ data class Cell(
         }
     }
 
+    val isPartOfWideChar: Boolean get() = width == 2 || isContinuation
+
     companion object {
         const val EMPTY_CHAR: Char = ' '
         val EMPTY = Cell()
         fun continuation(attributes: CellAttributes = CellAttributes.DEFAULT) =
             Cell(EMPTY_CHAR, attributes, isContinuation = true)
     }
+
+    fun isEmpty(): Boolean = char == EMPTY_CHAR && !isContinuation
 }
