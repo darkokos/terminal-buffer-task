@@ -25,4 +25,5 @@ tasks.test {
         events("passed", "skipped", "failed")
         showStandardStreams = true
     }
+    outputs.upToDateWhen { false }
 }
