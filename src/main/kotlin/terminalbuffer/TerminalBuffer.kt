@@ -59,7 +59,7 @@ class TerminalBuffer(
         }
     }
 
-    private fun requireValidScreenPosition(row: Int, column: Int) {
+    private fun requireValidScreenPosition(column: Int, row: Int) {
         if (column !in 0..<width) {
             throw IndexOutOfBoundsException("Column $column is out of the bounds of [0, $width).")
         }
@@ -138,7 +138,7 @@ class TerminalBuffer(
         currentCellAttributes = currentCellAttributes.copy(underline = underline)
     }
 
-    fun setCursorPosition(row: Int, column: Int) {
+    fun setCursorPosition(column: Int, row: Int) {
         cursorRow = row.coerceIn(0, height - 1)
         cursorColumn = column.coerceIn(0, width - 1)
     }
@@ -225,30 +225,30 @@ class TerminalBuffer(
         scrollback.clear()
     }
 
-    fun getCharAt(row: Int, column: Int): Char {
-        requireValidScreenPosition(row, column)
+    fun getCharAt(column: Int, row: Int): Char {
+        requireValidScreenPosition(column, row)
         return screen[row].getCell(column).char
     }
 
-    fun getAttributesAt(row: Int, column: Int): CellAttributes {
-        requireValidScreenPosition(row, column)
+    fun getAttributesAt(column: Int, row: Int): CellAttributes {
+        requireValidScreenPosition(column, row)
         return screen[row].getCell(column).attributes
     }
 
-    fun getCellAt(row: Int, column: Int): Cell {
-        requireValidScreenPosition(row, column)
+    fun getCellAt(column: Int, row: Int): Cell {
+        requireValidScreenPosition(column, row)
         return screen[row].getCell(column)
     }
 
-    fun getCharFromAllAt(row: Int, column: Int): Char {
+    fun getCharFromAllAt(column: Int, row: Int): Char {
         return getLineFromAllAt(row).getCell(column).char
     }
 
-    fun getAttributesFromAllAt(row: Int, column: Int): CellAttributes {
+    fun getAttributesFromAllAt(column: Int, row: Int): CellAttributes {
         return getLineFromAllAt(row).getCell(column).attributes
     }
 
-    fun getCellFromAllAt(row: Int, column: Int): Cell {
+    fun getCellFromAllAt(column: Int, row: Int): Cell {
         return getLineFromAllAt(row).getCell(column)
     }
 
