@@ -37,7 +37,9 @@ class TerminalBuffer(
     var cursorColumn: Int = 0
         private set
 
-    val totalLines: Int get() = scrollback.size + height
+    val scrollbackSize: Int get() = scrollback.size
+
+    val totalSize: Int get() = scrollback.size + height
 
     // Private utilities
 
@@ -66,8 +68,8 @@ class TerminalBuffer(
     }
 
     private fun getLineFromAllAt(row: Int): Line {
-        if (row !in 0..<totalLines) {
-            throw IndexOutOfBoundsException("Row $row is out of bounds of screen and scrollback [0, $totalLines).")
+        if (row !in 0..<totalSize) {
+            throw IndexOutOfBoundsException("Row $row is out of bounds of screen and scrollback [0, $totalSize).")
         }
 
         return if (row < scrollback.size) {
