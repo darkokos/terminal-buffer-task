@@ -55,7 +55,7 @@ class LineTest {
         }
 
         @Test
-        fun `clearWideCellAtSource clears the next cell if the current one is wide`() {
+        fun `clearWideCellAt clears the next cell if the current one is wide`() {
             line.setCell(0, Cell('\uFF01'))
             line.setCell(1, Cell.continuation())
             line.clearWideCellAt(0)
@@ -64,7 +64,7 @@ class LineTest {
         }
 
         @Test
-        fun `clearWideCellAtSource clears the previous cell if the current one is a continuation`() {
+        fun `clearWideCellAt clears the previous cell if the current one is a continuation`() {
             line.setCell(0, Cell('\uFF01'))
             line.setCell(1, Cell.continuation())
             line.clearWideCellAt(1)
@@ -76,6 +76,34 @@ class LineTest {
         fun `toText outputs the correct string representation of the line`() {
             line.setCell(0, Cell('.'))
             assertEquals(".         ", line.toText())
+        }
+
+        @Test
+        fun `copyResized to smaller width truncates line`() {
+            line.setCell(9, Cell('9'))
+            line.setCell(8, Cell('8'))
+            line.setCell(7, Cell('7'))
+            val newLine = line.copyResized(8)
+            assertEquals(8, newLine.width)
+            assertEquals("       7", newLine.toText())
+        }
+
+        @Test
+        fun `copyResized to larger width preserves original line content`() {
+            line.setCell(9, Cell('9'))
+            line.setCell(8, Cell('8'))
+            line.setCell(7, Cell('7'))
+            val newLine = line.copyResized(12)
+            assertEquals(12, newLine.width)
+            assertEquals("       789  ", newLine.toText())
+        }
+
+        @Test
+        fun `copyResized removes wide cell at the end of the line if truncation clipped it's continuation`() {
+            line.setCell(4, Cell('\uFF01'))
+            val newLine = line.copyResized(5)
+            assertEquals(5, newLine.width)
+            assertEquals("     ", newLine.toText())
         }
     }
 }

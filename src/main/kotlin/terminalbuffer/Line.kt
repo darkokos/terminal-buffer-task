@@ -46,4 +46,18 @@ class Line(val width: Int) {
         sb.append(cells.joinToString("") { it.char.toString() })
         return sb.toString()
     }
+
+    fun copyResized(width: Int): Line {
+        val newLine = Line(width)
+        val copyCount = minOf(this.width, width)
+        for (i in 0..<copyCount) {
+            newLine.cells[i] = cells[i]
+        }
+
+        if (newLine.cells[width - 1].width == 2) {
+            newLine.cells[width - 1] = Cell.EMPTY
+        }
+
+        return newLine
+    }
 }
