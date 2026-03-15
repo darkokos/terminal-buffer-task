@@ -953,5 +953,109 @@ class TerminalBufferTest {
                 assertEquals(sb.toString(), terminalBuffer.getTextFromAll())
             }
         }
+
+        @Nested
+        inner class Resize {
+
+            @ParameterizedTest
+            @ValueSource(ints = [-1, 0])
+            fun `terminal width must be at least 1`(width: Int) {
+                assertThrows<IllegalArgumentException> { terminalBuffer.resize(width, 1) }
+            }
+
+            @ParameterizedTest
+            @ValueSource(ints = [-1, 0])
+            fun `terminal height must be at least 1`(height: Int) {
+                assertThrows<IllegalArgumentException> { terminalBuffer.resize(1, height) }
+            }
+
+            @Test
+            fun `resize happy path`() {
+                terminalBuffer.insert("A".repeat(80))
+                terminalBuffer.resize(60, 60)
+                assertEquals("A".repeat(60), terminalBuffer.getLineTextAt(0))
+                for (i in 1..<60) {
+                    assertEquals(" ".repeat(60), terminalBuffer.getLineTextAt(i))
+                }
+                assertEquals(60, terminalBuffer.width)
+                assertEquals(60, terminalBuffer.height)
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(59, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `resize to smaller height pushes to scrollback`() {
+                terminalBuffer.insert("A".repeat(80))
+                terminalBuffer.setCursorPosition(0, 10)
+                terminalBuffer.insert("A".repeat(80))
+                terminalBuffer.resize(60, 50)
+                assertEquals("A".repeat(60), terminalBuffer.getLineTextFromAllAt(0))
+                for (i in 1..<terminalBuffer.scrollbackSize) {
+                    assertEquals(" ".repeat(60), terminalBuffer.getLineTextFromAllAt(i))
+                }
+                assertEquals(
+                    "A".repeat(60),
+                    terminalBuffer.getLineTextFromAllAt(terminalBuffer.scrollbackSize)
+                )
+                for (i in terminalBuffer.scrollbackSize + 1..<terminalBuffer.totalSize) {
+                    assertEquals(" ".repeat(60), terminalBuffer.getLineTextFromAllAt(i))
+                }
+                assertEquals(60, terminalBuffer.width)
+                assertEquals(50, terminalBuffer.height)
+                assertEquals(10, terminalBuffer.cursorRow)
+                assertEquals(59, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `resize to height less than or equal to totalSize retrieves from scrollback`() {
+                terminalBuffer.insert("A".repeat(80))
+                terminalBuffer.insertLineAtBottom()
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.insert("A".repeat(80))
+                terminalBuffer.resize(100, 61)
+                for (i in 0..<2) {
+                    assertEquals(
+                        "A".repeat(80) + " ".repeat(20),
+                        terminalBuffer.getLineTextFromAllAt(i)
+                    )
+                }
+                for (i in 2..<terminalBuffer.totalSize) {
+                    assertEquals(" ".repeat(100), terminalBuffer.getLineTextFromAllAt(i))
+                }
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(100, terminalBuffer.width)
+                assertEquals(61, terminalBuffer.height)
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(80, terminalBuffer.cursorColumn)
+            }
+
+            @Test
+            fun `resize to height larger than totalSize retrieves the entire scrollback and pads the remaining top of the screen with empty lines`() {
+                terminalBuffer.insert("Hello")
+                terminalBuffer.insertLineAtBottom()
+                terminalBuffer.setCursorPosition(0, 0)
+                terminalBuffer.insert("Earth")
+                terminalBuffer.resize(100, 70)
+                for (i in 0..<9) {
+                    assertEquals(" ".repeat(100), terminalBuffer.getLineTextFromAllAt(i))
+                }
+                assertEquals(
+                    "Hello" + " ".repeat(95),
+                    terminalBuffer.getLineTextFromAllAt(9)
+                )
+                assertEquals(
+                    "Earth" + " ".repeat(95),
+                    terminalBuffer.getLineTextFromAllAt(10)
+                )
+                for (i in 11..<terminalBuffer.totalSize) {
+                    assertEquals(" ".repeat(100), terminalBuffer.getLineTextFromAllAt(i))
+                }
+                assertEquals(0, terminalBuffer.scrollbackSize)
+                assertEquals(100, terminalBuffer.width)
+                assertEquals(70, terminalBuffer.height)
+                assertEquals(0, terminalBuffer.cursorRow)
+                assertEquals(5, terminalBuffer.cursorColumn)
+            }
+        }
     }
 }
