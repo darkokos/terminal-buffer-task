@@ -271,4 +271,41 @@ class TerminalBuffer(
         sb.append(getScreenText())
         return sb.toString()
     }
+
+    fun resize(width: Int, height: Int) {
+        require(width > 0) { "Terminal width must be at least 1, got $width." }
+        require(height > 0) { "Terminal height must be at least 1, got $height." }
+
+        for (i in scrollback.indices) {
+            scrollback[i] = scrollback[i].copyResized(width)
+        }
+        for (i in screen.indices) {
+            screen[i] = screen[i].copyResized(width)
+        }
+
+        if (height < screen.size) {
+            val numberOfExcessLines = screen.size - height
+            repeat(numberOfExcessLines) {
+                pushToScrollback(screen.removeFirst())
+            }
+        } else if (height > screen.size) {
+            var numberOfMissingLines = height - screen.size
+            val numberOfAvailableScrollbackLines = minOf(numberOfMissingLines, scrollback.size)
+            repeat(numberOfAvailableScrollbackLines) {
+                val line = scrollback.removeLast()
+                screen.addFirst(line)
+            }
+
+            numberOfMissingLines -= numberOfAvailableScrollbackLines
+            repeat(numberOfMissingLines) {
+                screen.addFirst(Line(width))
+            }
+        }
+
+        this.width = width
+        this.height = height
+
+        cursorRow = cursorRow.coerceIn(0, height - 1)
+        cursorColumn = cursorColumn.coerceIn(0, width - 1)
+    }
 }
